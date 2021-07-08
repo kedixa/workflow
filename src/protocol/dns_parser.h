@@ -196,6 +196,10 @@ int dns_parser_parse_all(dns_parser_t *parser);
 int dns_parser_append_message(const void *buf, size_t *n,
 							  dns_parser_t *parser);
 
+int dns_parser_append_record(const char *name, uint16_t type, uint16_t rclass,
+							 uint32_t ttl, uint16_t rdlength, const void *rdata,
+							 struct list_head *cursor);
+
 void dns_parser_deinit(dns_parser_t *parser);
 
 int dns_record_cursor_next(struct dns_record **record,

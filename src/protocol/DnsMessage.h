@@ -153,6 +153,15 @@ public:
 		parser->question.qname = strdup(name.c_str());
 	}
 
+	// Unstable interface
+	int append_answer_record(const char *name, uint16_t type, uint16_t rclass,
+							 uint32_t ttl, uint16_t rdlength, const void *rdata)
+	{
+		struct list_head *list = &this->parser->answer_list;
+		return dns_parser_append_record(name, type, rclass, ttl,
+										rdlength, rdata, list);
+	}
+
 	// Inner use only
 	bool has_leading_length() const
 	{

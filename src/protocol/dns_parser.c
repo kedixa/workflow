@@ -858,6 +858,42 @@ int dns_parser_append_message(const void *buf,
 	return 1;
 }
 
+int dns_parser_append_record(const char *name, uint16_t type, uint16_t rclass,
+							 uint32_t ttl, uint16_t rdlength, const void *rdata,
+							 struct list_head *list)
+{
+	struct __dns_record_entry *entry;
+	size_t entry_size;
+	char *new_name;
+
+	entry_size = sizeof (struct __dns_record_entry) + rdlength;
+	entry = (struct __dns_record_entry *)malloc(entry_size);
+	if (!entry)
+		return -1;
+
+	// name won't be NULL
+	new_name = strdup(name);
+	if (!new_name)
+	{
+		free(entry);
+		return -1;
+	}
+
+	entry->record.name = new_name;
+	entry->record.type = type;
+	entry->record.rclass = rclass;
+	entry->record.ttl = ttl;
+	entry->record.rdlength = rdlength;
+	entry->record.rdata = (void *)(entry + 1);
+	if (rdlength) // keep this line
+		memcpy(entry->record.rdata, rdata, rdlength);
+
+
+	list_add_tail(&entry->entry_list, list);
+
+	return 0;
+}
+
 void dns_parser_deinit(dns_parser_t *parser)
 {
 	free(parser->msgbuf);
