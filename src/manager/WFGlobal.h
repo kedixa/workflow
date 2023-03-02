@@ -34,7 +34,6 @@
 #include "WFResourcePool.h"
 #include "WFNameService.h"
 #include "WFDnsResolver.h"
-#include "EndpointParams.h"
 
 /**
  * @file    WFGlobal.h
@@ -125,6 +124,7 @@ public:
 
 	// Internal usage only
 public:
+	static bool is_scheduler_created();
 	static class CommScheduler *get_scheduler();
 	static SSL_CTX *get_ssl_client_ctx();
 	static SSL_CTX *new_ssl_server_ctx();
@@ -157,8 +157,8 @@ public:
 	}
 
 public:
-	static void sync_operation_begin();
-	static void sync_operation_end();
+	static int sync_operation_begin();
+	static void sync_operation_end(int cookie);
 
 private:
 	static struct WFGlobalSettings settings_;

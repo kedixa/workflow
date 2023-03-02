@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/sogou/workflow/blob/master/LICENSE)
 [![Language](https://img.shields.io/badge/language-c++-red.svg)](https://en.cppreference.com/)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](https://img.shields.io/badge/platform-linux%20%7C%20macos20%7C%20windows-lightgrey.svg)
-[![Build Status](https://img.shields.io/github/workflow/status/sogou/workflow/ci%20build)](https://github.com/sogou/workflow/actions?query=workflow%3A%22ci+build%22++)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/sogou/workflow/ci.yml?branch=master)](https://github.com/sogou/workflow/actions?query=workflow%3A%22ci+build%22++)
 
 搜狗公司C++服务器引擎，编程范式。支撑搜狗几乎所有后端C++在线服务，包括所有搜索服务，云输入法，在线广告等，每日处理数百亿请求。这是一个设计轻盈优雅的企业级程序引擎，可以满足大多数后端与嵌入式开发需求。  
 #### 你可以用来：
@@ -45,7 +45,7 @@ int main()
   *  ``Windows``版以[windows](https://github.com/sogou/workflow/tree/windows)分支发布，使用``iocp``实现异步网络。用户接口与``Linux``版一致。
 * 支持所有CPU平台，包括32或64位``x86``处理器，大端或小端``arm``处理器，国产``loongson``龙芯处理器实测支持。
 * 需要依赖于``OpenSSL``，推荐``OpenSSL 1.1``及以上版本。
-  * 不喜欢SSL的用户可以使用[nossl](https://github.com/sogou/workflow/tree/nossl)分支，代码更简洁。但仍需链接``crypto``。
+  * 不喜欢SSL的用户可以使用[nossl](https://github.com/sogou/workflow/tree/nossl)分支，代码更简洁。
 * 项目使用了``C++11``标准，需要用支持``C++11``的编译器编译。但不依赖``boost``或``asio``。
 * 项目无其它依赖。如需使用``kafka``协议，需自行安装``lz4``，``zstd``和``snappy``几个压缩库。
 
@@ -66,6 +66,8 @@ sudo apt-get install libworkflow-dev
 sudo apt-get install workflow1
 ~~~
 注意Ubuntu Linux只有最新22.04版自带workflow。更推荐用git直接下载最新源代码编译。
+
+如果你想用xmake去构建 workflow, 你可以看 [xmake build document](docs/xmake.md)
 
 # 示例教程
   * Client基础
@@ -94,10 +96,11 @@ sudo apt-get install workflow1
   * 其它一些重要任务与组件
     * [关于定时器](docs/about-timer.md)
     * [关于计数器](docs/about-counter.md)
-    * [条件任务与观察者模式](docs/about-conditional.md)
-    * [关于资源池](docs/about-resource-pool.md)
     * [模块任务](/docs/about-module.md)
     * [DAG图任务](/docs/tutorial-11-graph_task.md)
+  * 任务间通信
+    * [条件任务与观察者模式](docs/about-conditional.md)
+    * [资源池与消息队列](docs/about-resource-pool.md)
   * 服务治理
     * [关于服务治理](docs/about-service-governance.md)
     * [Upstream更多文档](docs/about-upstream.md)

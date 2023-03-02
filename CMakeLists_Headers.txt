@@ -77,7 +77,6 @@ set(INCLUDE_HEADERS
 	src/util/LRUCache.h
 	src/util/StringUtil.h
 	src/util/URIParser.h
-	src/util/MD5Util.h
 	src/factory/WFConnection.h
 	src/factory/WFTask.h
 	src/factory/WFTask.inl
@@ -90,6 +89,7 @@ set(INCLUDE_HEADERS
 	src/factory/Workflow.h
 	src/factory/WFOperator.h
 	src/factory/WFResourcePool.h
+	src/factory/WFMessageQueue.h
 	src/nameservice/WFNameService.h
 	src/nameservice/WFDnsResolver.h
 	src/nameservice/WFServiceGovernance.h

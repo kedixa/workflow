@@ -114,7 +114,7 @@ CommMessageOut *ComplexHttpTask::message_out()
 			header.value = "close";
 			header.value_len = strlen("close");
 		}
-	
+
 		req->add_header(&header);
 	}
 
@@ -151,10 +151,8 @@ CommMessageOut *ComplexHttpTask::message_out()
 
 		if ((unsigned int)this->keep_alive_timeo > HTTP_KEEPALIVE_MAX)
 			this->keep_alive_timeo = HTTP_KEEPALIVE_MAX;
-		//if (this->keep_alive_timeo < 0 || this->keep_alive_timeo > HTTP_KEEPALIVE_MAX)
 	}
 
-	//req->set_header_pair("Accept", "*/*");
 	return this->WFComplexClientTask::message_out();
 }
 
@@ -191,7 +189,6 @@ bool ComplexHttpTask::init_success()
 	std::string request_uri;
 	std::string header_host;
 	bool is_ssl;
-	bool is_unix = false;
 
 	if (uri_.scheme && strcasecmp(uri_.scheme, "http") == 0)
 		is_ssl = false;
@@ -221,13 +218,9 @@ bool ComplexHttpTask::init_success()
 	}
 
 	if (uri_.host && uri_.host[0])
-	{
 		header_host = uri_.host;
-		if (uri_.host[0] == '/')
-			is_unix = true;
-	}
 
-	if (!is_unix && uri_.port && uri_.port[0])
+	if (uri_.port && uri_.port[0])
 	{
 		int port = atoi(uri_.port);
 
@@ -252,7 +245,6 @@ bool ComplexHttpTask::init_success()
 	this->WFComplexClientTask::set_transport_type(is_ssl ? TT_TCP_SSL : TT_TCP);
 	client_req->set_request_uri(request_uri.c_str());
 	client_req->set_header_pair("Host", header_host.c_str());
-
 	return true;
 }
 
@@ -453,25 +445,25 @@ protected:
 private:
 	struct SSLConnection : public WFConnection
 	{
-		SSL *ssl_;
-		SSLHandshaker handshaker_;
-		SSLWrapper wrapper_;
-		SSLConnection(SSL *ssl) : handshaker_(ssl), wrapper_(&wrapper_, ssl)
+		SSL *ssl;
+		SSLHandshaker handshaker;
+		SSLWrapper wrapper;
+		SSLConnection(SSL *ssl) : handshaker(ssl), wrapper(&wrapper, ssl)
 		{
-			ssl_ = ssl;
+			this->ssl = ssl;
 		}
 	};
 
 	SSLHandshaker *get_ssl_handshaker() const
 	{
-		return &((SSLConnection *)this->get_connection())->handshaker_;
+		return &((SSLConnection *)this->get_connection())->handshaker;
 	}
 
 	SSLWrapper *get_ssl_wrapper(ProtocolMessage *msg) const
 	{
 		SSLConnection *conn = (SSLConnection *)this->get_connection();
-		conn->wrapper_ = SSLWrapper(msg, conn->ssl_);
-		return &conn->wrapper_;
+		conn->wrapper = SSLWrapper(msg, conn->ssl);
+		return &conn->wrapper;
 	}
 
 	int init_ssl_connection();
@@ -501,7 +493,7 @@ int ComplexHttpProxyTask::init_ssl_connection()
 	auto&& deleter = [] (void *ctx)
 	{
 		SSLConnection *ssl_conn = (SSLConnection *)ctx;
-		SSL_free(ssl_conn->ssl_);
+		SSL_free(ssl_conn->ssl);
 		delete ssl_conn;
 	};
 	conn->set_context(ssl_conn, std::move(deleter));
@@ -558,10 +550,7 @@ CommMessageIn *ComplexHttpProxyTask::message_in()
 		return get_ssl_handshaker();
 
 	auto *msg = (ProtocolMessage *)this->ComplexHttpTask::message_in();
-	if (is_ssl_)
-		return get_ssl_wrapper(msg);
-
-	return msg;
+	return is_ssl_ ? get_ssl_wrapper(msg) : msg;
 }
 
 int ComplexHttpProxyTask::keep_alive_timeout()

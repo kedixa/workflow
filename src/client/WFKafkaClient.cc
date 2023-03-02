@@ -19,7 +19,6 @@
 
 #include <unistd.h>
 #include <stdint.h>
-#include <cstddef>
 #include <string.h>
 #include <set>
 #include "WFKafkaClient.h"
@@ -95,6 +94,8 @@ public:
 			this->url = this->member->broker_hosts.at(rpos);
 		}
 		this->member->mutex.unlock();
+
+		this->info_generated = false;
 	}
 
 	virtual ~KafkaClientTask()
@@ -179,6 +180,7 @@ private:
 	std::string query;
 	std::set<std::string> topic_set;
 	std::string userinfo;
+	bool info_generated;
 
 	friend class WFKafkaClient;
 };
@@ -610,6 +612,9 @@ void KafkaClientTask::kafka_move_task_callback(__WFKafkaTask *task)
 
 void KafkaClientTask::generate_info()
 {
+	if (this->info_generated)
+		return;
+
 	if (this->config.get_sasl_mech())
 	{
 		this->userinfo = this->config.get_sasl_username();
@@ -631,6 +636,8 @@ void KafkaClientTask::generate_info()
 		this->url = "kafka://" + this->userinfo +
 			this->url.substr(this->url.find("kafka://") + 8);
 	}
+
+	this->info_generated = true;
 }
 
 void KafkaClientTask::parse_query()
@@ -1503,7 +1510,7 @@ int WFKafkaClient::init(const std::string& broker)
 	if (pos == std::string::npos)
 	{
 		std::string host = broker;
-		if (host.find("kafka://") != 0)
+		if (strncasecmp(host.c_str(), "kafka://", 8) != 0)
 			host = "kafka://" + host;
 		broker_hosts.emplace_back(host);
 	}
@@ -1512,7 +1519,7 @@ int WFKafkaClient::init(const std::string& broker)
 		do
 		{
 			std::string host = broker.substr(ppos, pos - ppos);
-			if (host.find("kafka://") != 0)
+			if (strncasecmp(host.c_str(), "kafka://", 8) != 0)
 				host = "kafka://" + host;
 			broker_hosts.emplace_back(host);
 
@@ -1521,7 +1528,7 @@ int WFKafkaClient::init(const std::string& broker)
 		} while (pos != std::string::npos);
 
 		std::string host = broker.substr(ppos, pos - ppos);
-		if (host.find("kafka://") != 0)
+		if (strncasecmp(host.c_str(), "kafka://", 8) != 0)
 			host = "kafka://" + host;
 		broker_hosts.emplace_back(host);
 	}

@@ -239,7 +239,7 @@ CommMessageOut *__ComplexKafkaTask::message_out()
 				}
 				else
 				{
-					toppar->set_offset(toppar->get_high_watermark() - 1);
+					toppar->set_offset(toppar->get_high_watermark());
 				}
 				continue;
 			}
@@ -517,6 +517,7 @@ bool __ComplexKafkaTask::process_metadata()
 		}
 	}
 
+	this->get_req()->set_meta_list(*msg->get_meta_list());
 	if (msg->get_cgroup()->get_group())
 	{
 		if (msg->get_cgroup()->is_leader())

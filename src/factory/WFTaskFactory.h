@@ -303,6 +303,10 @@ public:
 										 ExecQueue *queue, Executor *executor,
 										 FUNC&& func, ARGS&&... args);
 
+	/* For capturing 'task' itself in go task's running function. */
+	template<class FUNC, class... ARGS>
+	static void reset_go_task(WFGoTask *task, FUNC&& func, ARGS&&... args);
+
 public:
 	static WFGraphTask *create_graph_task(graph_callback_t callback)
 	{
@@ -362,6 +366,12 @@ public:
 								 int retry_max,
 								 std::function<void (T *)> callback);
 
+	static T *create_client_task(TransportType type,
+								 const struct sockaddr *addr,
+								 socklen_t addrlen,
+								 int retry_max,
+								 std::function<void (T *)> callback);
+
 public:
 	static T *create_server_task(CommService *service,
 								 std::function<void (T *)>& process);
@@ -372,22 +382,39 @@ class WFThreadTaskFactory
 {
 private:
 	using T = WFThreadTask<INPUT, OUTPUT>;
-	using MT = WFMultiThreadTask<INPUT, OUTPUT>;
 
 public:
 	static T *create_thread_task(const std::string& queue_name,
 								 std::function<void (INPUT *, OUTPUT *)> routine,
 								 std::function<void (T *)> callback);
 
+	/* Create thread task with running time limit. */
+	static T *create_thread_task(time_t seconds, long nanoseconds,
+								 const std::string& queue_name,
+								 std::function<void (INPUT *, OUTPUT *)> routine,
+								 std::function<void (T *)> callback);
+
+public:
+	/* Create thread task on user's executor and execution queue. */
+	static T *create_thread_task(ExecQueue *queue, Executor *executor,
+								 std::function<void (INPUT *, OUTPUT *)> routine,
+								 std::function<void (T *)> callback);
+
+	/* With running time limit. */
+	static T *create_thread_task(time_t seconds, long nanoseconds,
+								 ExecQueue *queue, Executor *executor,
+								 std::function<void (INPUT *, OUTPUT *)> routine,
+								 std::function<void (T *)> callback);
+
+private:
+	using MT = WFMultiThreadTask<INPUT, OUTPUT>;
+
+public:
 	static MT *create_multi_thread_task(const std::string& queue_name,
 										std::function<void (INPUT *, OUTPUT *)> routine,
 										size_t nthreads,
 										std::function<void (MT *)> callback);
 
-public:
-	static T *create_thread_task(ExecQueue *queue, Executor *executor,
-								 std::function<void (INPUT *, OUTPUT *)> routine,
-								 std::function<void (T *)> callback);
 };
 
 #include "WFTaskFactory.inl"
