@@ -544,6 +544,7 @@ int Communicator::send_message_async(struct iovec vectors[], int cnt,
 	data.context = entry;
 	data.write_iov = entry->write_iov;
 	data.iovcnt = cnt;
+	data.trace = NULL;
 	timeout = Communicator::first_timeout_send(entry->session);
 	if (entry->state == CONN_STATE_IDLE)
 	{
@@ -744,6 +745,7 @@ void Communicator::handle_incoming_reply(struct poller_result *res)
 	{
 		if (session)
 		{
+			trace_append_timeoff(res->data.trace, " hdl:");
 			target->release(entry->state == CONN_STATE_IDLE);
 			session->handle(state, res->error);
 		}
@@ -1153,6 +1155,8 @@ void Communicator::handler_thread_routine(void *context)
 		if (!res)
 			break;
 
+		trace_append_timeoff(res->data.trace, " queget:");
+
 		switch (res->data.operation)
 		{
 		case PD_OP_READ:
@@ -1368,6 +1372,7 @@ void *Communicator::accept(const struct sockaddr *addr, socklen_t addrlen,
 void Communicator::callback(struct poller_result *res, void *context)
 {
 	msgqueue_t *msgqueue = (msgqueue_t *)context;
+	trace_append_timeoff(res->data.trace, " queput:");
 	msgqueue_put(res, msgqueue);
 }
 
@@ -1564,6 +1569,9 @@ int Communicator::request_idle_conn(CommSession *session, CommTarget *target)
 	session->conn = entry->conn;
 	session->seq = entry->seq++;
 	session->out = session->message_out();
+
+	trace_append_timeoff(session->out->get_otrace(), " sidle:");
+
 	if (session->out)
 		ret = this->send_message(entry);
 
@@ -1594,6 +1602,7 @@ int Communicator::request_new_conn(CommSession *session, CommTarget *target)
 		data.fd = entry->sockfd;
 		data.ssl = NULL;
 		data.context = entry;
+		data.trace = NULL;
 		timeout = session->target->connect_timeout;
 		if (mpoller_add(&data, timeout, this->mpoller) >= 0)
 			return 0;
@@ -1668,6 +1677,7 @@ int Communicator::bind(CommService *service)
 		data.accept = Communicator::accept;
 		data.context = service;
 		data.result = NULL;
+		data.trace = NULL;
 		if (mpoller_add(&data, service->listen_timeout, this->mpoller) >= 0)
 			return 0;
 
@@ -1869,6 +1879,7 @@ int Communicator::io_bind(IOService *service)
 			data.event = IOService::aio_finish;
 			data.context = service;
 			data.result = NULL;
+			data.trace = NULL;
 			if (mpoller_add(&data, -1, this->mpoller) >= 0)
 			{
 				service->event_fd = event_fd;
@@ -1922,6 +1933,7 @@ int Communicator::io_bind(IOService *service)
 			data.notify = IOService::aio_finish;
 			data.context = service;
 			data.result = NULL;
+			data.trace = NULL;
 			if (mpoller_add(&data, -1, this->mpoller) >= 0)
 			{
 				service->pipe_fd[0] = pipe_fd[0];

@@ -87,6 +87,95 @@ struct __poller
 
 #ifdef __linux__
 
+long __get_time_usec()
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+		return ts.tv_sec * 1000 * 1000L + ts.tv_nsec / 1000;
+	return 0LL;
+}
+
+trace_t *new_trace()
+{
+	trace_t *t = (trace_t *)malloc(sizeof(trace_t));
+
+	if (t)
+	{
+		t->start_time = 0;
+		t->buf = NULL;
+		t->maxlen = 0;
+		t->len = 0;
+	}
+
+	return t;
+}
+
+void free_trace(trace_t *t)
+{
+	if (t)
+	{
+		free(t->buf);
+		free(t);
+	}
+}
+
+void trace_append(trace_t *t, const char *d, size_t dlen)
+{
+	size_t newlen;
+
+	if (!t)
+		return;
+
+	if (t->len + dlen + 1 > t->maxlen)
+	{
+		newlen = t->maxlen == 0 ? 32 : t->maxlen * 2;
+
+		while (t->len + dlen + 1 > newlen)
+			newlen *= 2;
+
+		t->buf = (char *)realloc(t->buf, newlen);
+
+		if (t->buf == NULL)
+		{
+			t->len = 0;
+			t->maxlen = 0;
+			return;
+		}
+
+		t->maxlen = newlen;
+	}
+
+	memcpy(t->buf + t->len, d, dlen);
+	t->len += dlen;
+	t->buf[t->len] = 0;
+}
+
+void trace_append_str(trace_t *t, const char *d)
+{
+	trace_append(t, d, strlen(d));
+}
+
+void trace_append_long(trace_t *t, long l)
+{
+	char buf[32];
+
+	if (!t)
+		return;
+
+	sprintf(buf, "%ld", l);
+	trace_append(t, buf, strlen(buf));
+}
+
+void trace_append_timeoff(trace_t *t, const char *tag)
+{
+	if (!t)
+		return;
+
+	trace_append(t, tag, strlen(tag));
+	trace_append_long(t, __get_time_usec() - t->start_time);
+}
+
 static inline int __poller_create_pfd()
 {
 	return epoll_create(1);
@@ -363,6 +452,7 @@ static int __poller_append_message(const void *buf, size_t *n,
 	if (ret > 0)
 	{
 		res->data = node->data;
+		res->data.trace = msg->trace;
 		res->error = 0;
 		res->state = PR_ST_SUCCESS;
 		poller->cb((struct poller_result *)res, poller->ctx);

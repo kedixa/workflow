@@ -47,6 +47,9 @@ class WFClientTask : public WFNetworkTask<REQ, RESP>
 protected:
 	virtual CommMessageOut *message_out()
 	{
+		trace_append_timeoff(this->req.get_trace(), " msgout:");
+		this->req.set_otrace(this->req.get_trace());
+
 		/* By using prepare function, users can modify request after
 		 * the connection is established. */
 		if (this->prepare)
@@ -55,7 +58,13 @@ protected:
 		return &this->req;
 	}
 
-	virtual CommMessageIn *message_in() { return &this->resp; }
+	virtual CommMessageIn *message_in()
+	{
+		trace_append_timeoff(this->req.get_trace(), " msgin:");
+		this->resp.set_trace(this->req.get_trace());
+		this->resp.set_otrace(this->req.get_trace());
+		return &this->resp;
+	}
 
 protected:
 	virtual WFConnection *get_connection() const

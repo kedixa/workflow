@@ -27,8 +27,18 @@
 typedef struct __poller poller_t;
 typedef struct __poller_message poller_message_t;
 
+typedef struct __trace trace_t;
+struct __trace
+{
+	long start_time;
+	char *buf;
+	size_t maxlen;
+	size_t len;
+};
+
 struct __poller_message
 {
+	trace_t *trace;
 	int (*append)(const void *, size_t *, poller_message_t *);
 	char data[0];
 };
@@ -66,6 +76,7 @@ struct poller_data
 		struct iovec *write_iov;
 		void *result;
 	};
+	trace_t *trace;
 };
 
 struct poller_result
@@ -104,6 +115,15 @@ int poller_add_timer(const struct timespec *value, void *context,
 					 poller_t *poller);
 void poller_stop(poller_t *poller);
 void poller_destroy(poller_t *poller);
+
+long __get_time_usec();
+
+trace_t *new_trace();
+void free_trace(trace_t *);
+void trace_append(trace_t *, const char *data, size_t dlen);
+void trace_append_str(trace_t *, const char *data);
+void trace_append_long(trace_t *, long);
+void trace_append_timeoff(trace_t *, const char *tag);
 
 #ifdef __cplusplus
 }

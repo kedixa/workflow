@@ -99,8 +99,15 @@ private:
 	virtual int encode(struct iovec vectors[], int max) = 0;
 
 public:
+	CommMessageOut() { otrace = NULL; }
+	trace_t *get_otrace() { return this->otrace; }
+	void set_otrace(trace_t *t) { this->otrace = t; }
+
 	virtual ~CommMessageOut() { }
 	friend class Communicator;
+
+private:
+	trace_t *otrace;
 };
 
 class CommMessageIn : private poller_message_t
@@ -117,6 +124,12 @@ protected:
 
 private:
 	struct CommConnEntry *entry;
+
+public:
+	CommMessageIn() { this->trace = NULL; }
+
+	trace_t *get_trace() { return this->trace; }
+	void set_trace(trace_t *t) { this->trace = t; }
 
 public:
 	virtual ~CommMessageIn() { }

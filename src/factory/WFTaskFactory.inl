@@ -349,6 +349,7 @@ void WFComplexClientTask<REQ, RESP, CTX>::router_callback(void *t)
 template<class REQ, class RESP, typename CTX>
 void WFComplexClientTask<REQ, RESP, CTX>::dispatch()
 {
+	trace_append_timeoff(this->req.get_trace(), " disp:");
 	switch (this->state)
 	{
 	case WFT_STATE_UNDEFINED:
