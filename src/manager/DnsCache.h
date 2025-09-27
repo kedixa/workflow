@@ -21,11 +21,11 @@
 
 #include <netdb.h>
 #include <stdint.h>
+#include <pthread.h>
 #include <string>
-#include <mutex>
+#include <map>
+#include <atomic>
 #include <utility>
-#include "LRUCache.h"
-#include "DnsUtil.h"
 
 #define GET_TYPE_TTL		0
 #define GET_TYPE_CONFIDENT	1
@@ -48,8 +48,30 @@ struct DnsCacheValue
 class DnsCache
 {
 public:
+	class DnsHandle
+	{
+	public:
+		DnsCacheValue value;
+
+		DnsHandle() = default;
+		~DnsHandle();
+
+		void inc_ref() const
+		{
+			++ref;
+		}
+
+		void dec_ref() const
+		{
+			if (--ref == 0)
+				delete this;
+		}
+
+	private:
+		mutable std::atomic<int> ref{1};
+	};
+
 	using HostPort = std::pair<std::string, unsigned short>;
-	using DnsHandle = LRUHandle<HostPort, DnsCacheValue>;
 
 public:
 	// get handler
@@ -139,26 +161,8 @@ public:
 private:
 	const DnsHandle *get_inner(const HostPort& host_port, int type);
 
-	std::mutex mutex_;
-
-	class ValueDeleter
-	{
-	public:
-		void operator() (const DnsCacheValue& value) const
-		{
-			struct addrinfo *ai = value.addrinfo;
-
-			if (ai)
-			{
-				if (ai->ai_flags & 1)
-					freeaddrinfo(ai);
-				else
-					protocol::DnsUtil::freeaddrinfo(ai);
-			}
-		}
-	};
-
-	LRUCache<HostPort, DnsCacheValue, ValueDeleter> cache_pool_;
+	pthread_rwlock_t rwlock_;
+	std::map<HostPort, DnsHandle *> cache_;
 
 public:
 	// To prevent inline calling LRUCache's constructor and deconstructor.

@@ -20,20 +20,56 @@
 #include <stdint.h>
 #include <chrono>
 #include "DnsCache.h"
+#include "DnsUtil.h"
 
 #define GET_CURRENT_SECOND	std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count()
 
 #define	TTL_INC				5
 
+static bool __is_expired(const DnsCache::DnsHandle *hdl, int64_t cur, int type)
+{
+	if (type == GET_TYPE_TTL)
+		return cur > hdl->value.expire_time;
+
+	return cur > hdl->value.confident_time;
+}
+
 const DnsCache::DnsHandle *DnsCache::get_inner(const HostPort& host_port,
 											   int type)
 {
 	int64_t cur = GET_CURRENT_SECOND;
-	std::lock_guard<std::mutex> lock(mutex_);
-	const DnsHandle *handle = cache_pool_.get(host_port);
+	const DnsHandle *handle;
 
-	if (handle && ((type == GET_TYPE_TTL && cur > handle->value.expire_time) ||
-		(type == GET_TYPE_CONFIDENT && cur > handle->value.confident_time)))
+	pthread_rwlock_rdlock(&rwlock_);
+
+	auto it = cache_.find(host_port);
+	if (it == cache_.end())
+	{
+		pthread_rwlock_unlock(&rwlock_);
+		return NULL;
+	}
+	else if (!__is_expired(it->second, cur, type))
+	{
+		handle = it->second;
+		handle->inc_ref();
+
+		pthread_rwlock_unlock(&rwlock_);
+		return handle;
+	}
+
+	pthread_rwlock_unlock(&rwlock_);
+
+	pthread_rwlock_wrlock(&rwlock_);
+
+	it = cache_.find(host_port);
+	if (it == cache_.end())
+	{
+		pthread_rwlock_unlock(&rwlock_);
+		return NULL;
+	}
+
+	handle = it->second;
+	if (__is_expired(handle, cur, type))
 	{
 		if (!handle->value.delayed())
 		{
@@ -46,10 +82,12 @@ const DnsCache::DnsHandle *DnsCache::get_inner(const HostPort& host_port,
 			h->value.addrinfo->ai_flags |= 2;
 		}
 
-		cache_pool_.release(handle);
+		pthread_rwlock_unlock(&rwlock_);
 		return NULL;
 	}
 
+	handle->inc_ref();
+	pthread_rwlock_unlock(&rwlock_);
 	return handle;
 }
 
@@ -75,33 +113,88 @@ const DnsCache::DnsHandle *DnsCache::put(const HostPort& host_port,
 	else
 		expire_time = cur_time + dns_ttl_default;
 
-	std::lock_guard<std::mutex> lock(mutex_);
-	return cache_pool_.put(host_port, {addrinfo, confident_time, expire_time});
+	DnsHandle *handle = new DnsHandle();
+	handle->value.addrinfo = addrinfo;
+	handle->value.confident_time = confident_time;
+	handle->value.expire_time = expire_time;
+
+	pthread_rwlock_wrlock(&rwlock_);
+
+	auto it = cache_.find(host_port);
+	if (it != cache_.end())
+	{
+		it->second->dec_ref();
+		it->second = handle;
+	}
+	else
+	{
+		cache_.insert({host_port, handle});
+	}
+
+	handle->inc_ref();
+	pthread_rwlock_unlock(&rwlock_);
+	return handle;
 }
 
 const DnsCache::DnsHandle *DnsCache::get(const DnsCache::HostPort& host_port)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
-	return cache_pool_.get(host_port);
+	const DnsHandle *handle = NULL;
+
+	pthread_rwlock_rdlock(&rwlock_);
+
+	auto it = cache_.find(host_port);
+	if (it != cache_.end())
+	{
+		handle = it->second;
+		handle->inc_ref();
+	}
+
+	pthread_rwlock_unlock(&rwlock_);
+	return handle;
 }
 
 void DnsCache::release(const DnsCache::DnsHandle *handle)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
-	cache_pool_.release(handle);
+	handle->dec_ref();
 }
 
 void DnsCache::del(const DnsCache::HostPort& key)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
-	cache_pool_.del(key);
+	pthread_rwlock_wrlock(&rwlock_);
+
+	auto it = cache_.find(key);
+	if (it != cache_.end())
+	{
+		it->second->dec_ref();
+		cache_.erase(it);
+	}
+
+	pthread_rwlock_unlock(&rwlock_);
 }
 
 DnsCache::DnsCache()
 {
+	pthread_rwlock_init(&rwlock_, NULL);
 }
 
 DnsCache::~DnsCache()
 {
+	for (const auto &pair : cache_)
+		pair.second->dec_ref();
+
+	pthread_rwlock_destroy(&rwlock_);
+}
+
+DnsCache::DnsHandle::~DnsHandle()
+{
+	struct addrinfo *ai = value.addrinfo;
+
+	if (ai)
+	{
+		if (ai->ai_flags & 1)
+			freeaddrinfo(ai);
+		else
+			protocol::DnsUtil::freeaddrinfo(ai);
+	}
 }
 

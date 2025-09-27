@@ -1,5 +1,5 @@
 /*
-  Copyright (c) 2020 Sogou, Inc.
+  Copyright (c) 2025 Sogou, Inc.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -16,12 +16,16 @@
   Author: Xie Han (xiehan@sogou-inc.com)
 */
 
+#include <atomic>
+#include <mutex>
+
 #include <errno.h>
-#include <stdlib.h>
 #include <pthread.h>
+#include <stdlib.h>
+
 #include "msgqueue.h"
 
-struct __msgqueue
+struct __simple_queue
 {
 	size_t msg_max;
 	size_t msg_cnt;
@@ -38,7 +42,7 @@ struct __msgqueue
 	pthread_cond_t put_cond;
 };
 
-void msgqueue_set_nonblock(msgqueue_t *queue)
+void __simple_queue_set_nonblock(__simple_queue *queue)
 {
 	queue->nonblock = 1;
 	pthread_mutex_lock(&queue->put_mutex);
@@ -47,12 +51,12 @@ void msgqueue_set_nonblock(msgqueue_t *queue)
 	pthread_mutex_unlock(&queue->put_mutex);
 }
 
-void msgqueue_set_block(msgqueue_t *queue)
+void __simple_queue_set_block(__simple_queue *queue)
 {
 	queue->nonblock = 0;
 }
 
-void msgqueue_put(void *msg, msgqueue_t *queue)
+void __simple_queue_put(void *msg, __simple_queue *queue)
 {
 	void **link = (void **)((char *)msg + queue->linkoff);
 
@@ -68,7 +72,7 @@ void msgqueue_put(void *msg, msgqueue_t *queue)
 	pthread_cond_signal(&queue->get_cond);
 }
 
-void msgqueue_put_head(void *msg, msgqueue_t *queue)
+void __simple_queue_put_head(void *msg, __simple_queue *queue)
 {
 	void **link = (void **)((char *)msg + queue->linkoff);
 
@@ -98,7 +102,7 @@ void msgqueue_put_head(void *msg, msgqueue_t *queue)
 	pthread_cond_signal(&queue->get_cond);
 }
 
-static size_t __msgqueue_swap(msgqueue_t *queue)
+static size_t __simple_queue_swap(__simple_queue *queue)
 {
 	void **get_head = queue->get_head;
 	size_t cnt;
@@ -119,12 +123,12 @@ static size_t __msgqueue_swap(msgqueue_t *queue)
 	return cnt;
 }
 
-void *msgqueue_get(msgqueue_t *queue)
+void *__simple_queue_get(__simple_queue *queue)
 {
 	void *msg;
 
 	pthread_mutex_lock(&queue->get_mutex);
-	if (*queue->get_head || __msgqueue_swap(queue) > 0)
+	if (*queue->get_head || __simple_queue_swap(queue) > 0)
 	{
 		msg = (char *)*queue->get_head - queue->linkoff;
 		*queue->get_head = *(void **)*queue->get_head;
@@ -136,9 +140,9 @@ void *msgqueue_get(msgqueue_t *queue)
 	return msg;
 }
 
-msgqueue_t *msgqueue_create(size_t maxlen, int linkoff)
+__simple_queue *__simple_queue_create(size_t maxlen, int linkoff)
 {
-	msgqueue_t *queue = (msgqueue_t *)malloc(sizeof (msgqueue_t));
+	__simple_queue *queue = (__simple_queue *)malloc(sizeof(__simple_queue));
 	int ret;
 
 	if (!queue)
@@ -182,7 +186,7 @@ msgqueue_t *msgqueue_create(size_t maxlen, int linkoff)
 	return NULL;
 }
 
-void msgqueue_destroy(msgqueue_t *queue)
+void __simple_queue_destroy(__simple_queue *queue)
 {
 	pthread_cond_destroy(&queue->put_cond);
 	pthread_cond_destroy(&queue->get_cond);
@@ -191,3 +195,93 @@ void msgqueue_destroy(msgqueue_t *queue)
 	free(queue);
 }
 
+constexpr static size_t SUBQUEUE_COUNT = 4;
+
+struct __msgqueue
+{
+	std::atomic<uint32_t> head;
+	char padding1[60];
+	std::atomic<uint32_t> tail;
+	char padding2[60];
+
+	__simple_queue *ques[SUBQUEUE_COUNT];
+};
+
+extern "C"
+{
+
+msgqueue_t *msgqueue_create(size_t maxlen, int linkoff)
+{
+	msgqueue_t *queue = (msgqueue_t *)malloc(sizeof (msgqueue_t));
+
+	if (!queue)
+		return NULL;
+
+	queue->head.store(0);
+	queue->tail.store(0);
+
+	size_t sublen = SIZE_MAX;
+	if (maxlen > 0)
+	{
+		sublen = maxlen / SUBQUEUE_COUNT;
+		if (maxlen % SUBQUEUE_COUNT != 0 && sublen != SIZE_MAX)
+			++sublen;
+	}
+
+	size_t i;
+	for (i = 0; i < SUBQUEUE_COUNT; i++)
+	{
+		queue->ques[i] = __simple_queue_create(sublen, linkoff);
+		if (!queue->ques[i])
+			break;
+	}
+
+	if (i == SUBQUEUE_COUNT)
+		return queue;
+
+	while (i > 0)
+		__simple_queue_destroy(queue->ques[--i]);
+
+	free(queue);
+	return NULL;
+}
+
+void *msgqueue_get(msgqueue_t *queue)
+{
+	uint32_t i = queue->tail.fetch_add(1) % SUBQUEUE_COUNT;
+	return __simple_queue_get(queue->ques[i]);
+}
+
+void msgqueue_put(void *msg, msgqueue_t *queue)
+{
+	uint32_t i = queue->head.fetch_add(1) % SUBQUEUE_COUNT;
+	__simple_queue_put(msg, queue->ques[i]);
+}
+
+void msgqueue_put_head(void *msg, msgqueue_t *queue)
+{
+	uint32_t i = queue->head.fetch_add(1) % SUBQUEUE_COUNT;
+	__simple_queue_put_head(msg, queue->ques[i]);
+}
+
+void msgqueue_set_nonblock(msgqueue_t *queue)
+{
+	for (size_t i = 0; i < SUBQUEUE_COUNT; i++)
+		__simple_queue_set_nonblock(queue->ques[i]);
+}
+
+void msgqueue_set_block(msgqueue_t *queue)
+{
+	for (size_t i = 0; i < SUBQUEUE_COUNT; i++)
+		__simple_queue_set_block(queue->ques[i]);
+}
+
+void msgqueue_destroy(msgqueue_t *queue)
+{
+	for (size_t i = 0; i < SUBQUEUE_COUNT; i++)
+		__simple_queue_destroy(queue->ques[i]);
+
+	free(queue);
+}
+
+}

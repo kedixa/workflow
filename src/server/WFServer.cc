@@ -178,7 +178,7 @@ int WFServerBase::create_listen_fd()
 WFConnection *WFServerBase::new_connection(int accept_fd)
 {
 	if (++this->conn_count <= this->params.max_connections ||
-		this->drain(1) == 1)
+		this->drain_one() == 1)
 	{
 		int reuse = 1;
 		setsockopt(accept_fd, SOL_SOCKET, SO_REUSEADDR,

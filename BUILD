@@ -21,7 +21,6 @@ cc_library(
 	name = 'common_c',
 	srcs = [
 		'src/kernel/mpoller.c',
-		'src/kernel/msgqueue.c',
 		'src/kernel/poller.c',
 		'src/kernel/rbtree.c',
 		'src/kernel/thrdpool.c',
@@ -39,6 +38,7 @@ cc_library(
 cc_library(
 	name = 'common',
 	srcs = [
+		'src/kernel/msgqueue.cc',
 		'src/client/WFDnsClient.cc',
 		'src/factory/DnsTaskImpl.cc',
 		'src/factory/FileTaskImpl.cc',

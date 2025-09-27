@@ -498,6 +498,8 @@ RouteManager::~RouteManager()
 		entry->deinit();
 		delete entry;
 	}
+
+	pthread_rwlock_destroy(&rwlock_);
 }
 
 int RouteManager::get(enum TransportType type,
@@ -522,7 +524,39 @@ int RouteManager::get(enum TransportType type,
 	struct rb_node *parent = NULL;
 	RouteResultEntry *bound = NULL;
 	RouteResultEntry *entry;
-	std::lock_guard<std::mutex> lock(mutex_);
+
+	pthread_rwlock_rdlock(&rwlock_);
+
+	while (*p)
+	{
+		entry = rb_entry(*p, RouteResultEntry, rb);
+		if (key <= entry->key)
+		{
+			bound = entry;
+			p = &(*p)->rb_left;
+		}
+		else
+			p = &(*p)->rb_right;
+	}
+
+	if (bound && bound->key == key)
+	{
+		entry = bound;
+		entry->check_breaker();
+
+		result.cookie = entry;
+		result.request_object = entry->request_object;
+
+		pthread_rwlock_unlock(&rwlock_);
+		return 0;
+	}
+
+	pthread_rwlock_unlock(&rwlock_);
+
+	pthread_rwlock_wrlock(&rwlock_);
+
+	p = &cache_.rb_node;
+	bound = NULL;
 
 	while (*p)
 	{
@@ -565,6 +599,7 @@ int RouteManager::get(enum TransportType type,
 		}
 		else
 		{
+			pthread_rwlock_unlock(&rwlock_);
 			delete entry;
 			return -1;
 		}
@@ -572,6 +607,7 @@ int RouteManager::get(enum TransportType type,
 
 	result.cookie = entry;
 	result.request_object = entry->request_object;
+	pthread_rwlock_unlock(&rwlock_);
 	return 0;
 }
 

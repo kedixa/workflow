@@ -14,8 +14,8 @@ set(SRC
 	mpoller.c
 	poller.c
 	rbtree.c
-	msgqueue.c
 	thrdpool.c
+	msgqueue.cc
 	CommRequest.cc
 	CommScheduler.cc
 	Communicator.cc

@@ -26,6 +26,8 @@
 #include <stddef.h>
 #include <pthread.h>
 #include <openssl/ssl.h>
+#include <atomic>
+#include <mutex>
 #include "list.h"
 #include "poller.h"
 
@@ -132,6 +134,8 @@ public:
 #define CS_STATE_STOPPED	2
 #define CS_STATE_TOREPLY	3	/* for service session only. */
 
+#define COMM_SERVICE_LOCK_CNT 4
+
 class CommSession
 {
 private:
@@ -176,7 +180,8 @@ public:
 			 int listen_timeout, int response_timeout);
 	void deinit();
 
-	int drain(int max);
+	int drain_one();
+	int drain_all();
 
 public:
 	void get_addr(const struct sockaddr **addr, socklen_t *addrlen) const
@@ -230,8 +235,9 @@ private:
 	int ref;
 
 private:
-	struct list_head keep_alive_list;
-	pthread_mutex_t mutex;
+	struct list_head keep_alive_list[COMM_SERVICE_LOCK_CNT];
+	std::mutex mtxs[COMM_SERVICE_LOCK_CNT];
+	std::atomic<unsigned> drain_index;
 
 public:
 	virtual ~CommService() { }

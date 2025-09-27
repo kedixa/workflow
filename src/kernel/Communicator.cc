@@ -270,27 +270,22 @@ void CommMessageIn::renew()
 int CommService::init(const struct sockaddr *bind_addr, socklen_t addrlen,
 					  int listen_timeout, int response_timeout)
 {
-	int ret;
+	this->drain_index.store(0);
 
 	this->bind_addr = (struct sockaddr *)malloc(addrlen);
 	if (this->bind_addr)
 	{
-		ret = pthread_mutex_init(&this->mutex, NULL);
-		if (ret == 0)
-		{
-			memcpy(this->bind_addr, bind_addr, addrlen);
-			this->addrlen = addrlen;
-			this->listen_timeout = listen_timeout;
-			this->response_timeout = response_timeout;
-			INIT_LIST_HEAD(&this->keep_alive_list);
+		memcpy(this->bind_addr, bind_addr, addrlen);
+		this->addrlen = addrlen;
+		this->listen_timeout = listen_timeout;
+		this->response_timeout = response_timeout;
 
-			this->ssl_ctx = NULL;
-			this->ssl_accept_timeout = 0;
-			return 0;
-		}
+		for (int i = 0; i < COMM_SERVICE_LOCK_CNT; i++)
+			INIT_LIST_HEAD(&this->keep_alive_list[i]);
 
-		errno = ret;
-		free(this->bind_addr);
+		this->ssl_ctx = NULL;
+		this->ssl_accept_timeout = 0;
+		return 0;
 	}
 
 	return -1;
@@ -298,22 +293,25 @@ int CommService::init(const struct sockaddr *bind_addr, socklen_t addrlen,
 
 void CommService::deinit()
 {
-	pthread_mutex_destroy(&this->mutex);
 	free(this->bind_addr);
 }
 
-int CommService::drain(int max)
+int CommService::drain_one()
 {
 	struct CommConnEntry *entry;
 	struct list_head *pos;
 	int errno_bak;
 	int cnt = 0;
 
+	unsigned lid = drain_index.fetch_add(1) % COMM_SERVICE_LOCK_CNT;
+	std::mutex &mtx = mtxs[lid];
+	struct list_head &alive_lst = this->keep_alive_list[lid];
+
 	errno_bak = errno;
-	pthread_mutex_lock(&this->mutex);
-	while (cnt != max && !list_empty(&this->keep_alive_list))
+	mtx.lock();
+	if (!list_empty(&alive_lst))
 	{
-		pos = this->keep_alive_list.prev;
+		pos = alive_lst.prev;
 		entry = list_entry(pos, struct CommConnEntry, list);
 		list_del(pos);
 		cnt++;
@@ -323,7 +321,38 @@ int CommService::drain(int max)
 		entry->state = CONN_STATE_CLOSING;
 	}
 
-	pthread_mutex_unlock(&this->mutex);
+	mtx.unlock();
+	errno = errno_bak;
+	return cnt;
+}
+
+int CommService::drain_all()
+{
+	struct CommConnEntry *entry;
+	struct list_head *pos;
+	int errno_bak;
+	int cnt = 0;
+
+	errno_bak = errno;
+	for (int i = 0; i < COMM_SERVICE_LOCK_CNT; i++)
+	{
+		mtxs[i].lock();
+		struct list_head &alive_lst = this->keep_alive_list[i];
+		while (!list_empty(&alive_lst))
+		{
+			pos = alive_lst.prev;
+			entry = list_entry(pos, struct CommConnEntry, list);
+			list_del(pos);
+			cnt++;
+
+			/* Cannot change the sequence of next two lines. */
+			mpoller_del(entry->sockfd, entry->mpoller);
+			entry->state = CONN_STATE_CLOSING;
+		}
+
+		mtxs[i].unlock();
+	}
+
 	errno = errno_bak;
 	return cnt;
 }
@@ -471,7 +500,7 @@ void Communicator::shutdown_service(CommService *service)
 {
 	close(service->listen_fd);
 	service->listen_fd = -1;
-	service->drain(-1);
+	service->drain_all();
 	service->decref();
 }
 
@@ -532,15 +561,23 @@ int Communicator::send_message_sync(struct iovec vectors[], int cnt,
 		{
 		default:
 			mpoller_set_timeout(entry->sockfd, timeout, this->mpoller);
-			pthread_mutex_lock(&service->mutex);
-			if (service->listen_fd >= 0)
+
 			{
-				entry->state = CONN_STATE_KEEPALIVE;
-				list_add(&entry->list, &service->keep_alive_list);
-				entry = NULL;
+				unsigned lid = (unsigned)entry->sockfd % COMM_SERVICE_LOCK_CNT;
+				std::mutex &mtx = service->mtxs[lid];
+				struct list_head &alive_lst = service->keep_alive_list[lid];
+
+				mtx.lock();
+				if (service->listen_fd >= 0)
+				{
+					entry->state = CONN_STATE_KEEPALIVE;
+					list_add(&entry->list, &alive_lst);
+					entry = NULL;
+				}
+
+				mtx.unlock();
 			}
 
-			pthread_mutex_unlock(&service->mutex);
 			if (entry)
 			{
 		case 0:
@@ -684,11 +721,16 @@ void Communicator::handle_incoming_request(struct poller_result *res)
 		switch (entry->state)
 		{
 		case CONN_STATE_KEEPALIVE:
-			pthread_mutex_lock(&entry->service->mutex);
+		{
+			unsigned lid = (unsigned)entry->sockfd % COMM_SERVICE_LOCK_CNT;
+			std::mutex &mtx = entry->service->mtxs[lid];
+
+			mtx.lock();
 			if (entry->state == CONN_STATE_KEEPALIVE)
 				list_del(&entry->list);
-			pthread_mutex_unlock(&entry->service->mutex);
+			mtx.unlock();
 			break;
+		}
 
 		case CONN_STATE_IDLE:
 			list_del(&entry->list);
@@ -840,11 +882,15 @@ void Communicator::handle_reply_result(struct poller_result *res)
 			pthread_mutex_lock(&target->mutex);
 			if (mpoller_add(&res->data, timeout, this->mpoller) >= 0)
 			{
-				pthread_mutex_lock(&service->mutex);
+				unsigned lid = (unsigned)entry->sockfd % COMM_SERVICE_LOCK_CNT;
+				std::mutex &mtx = service->mtxs[lid];
+				struct list_head &alive_lst = service->keep_alive_list[lid];
+
+				mtx.lock();
 				if (!this->stop_flag && service->listen_fd >= 0)
 				{
 					entry->state = CONN_STATE_KEEPALIVE;
-					list_add(&entry->list, &service->keep_alive_list);
+					list_add(&entry->list, &alive_lst);
 				}
 				else
 				{
@@ -852,7 +898,7 @@ void Communicator::handle_reply_result(struct poller_result *res)
 					entry->state = CONN_STATE_CLOSING;
 				}
 
-				pthread_mutex_unlock(&service->mutex);
+				mtx.unlock();
 			}
 			else
 				__sync_sub_and_fetch(&entry->ref, 1);
@@ -1372,13 +1418,15 @@ poller_message_t *Communicator::create_request(void *context)
 		pthread_mutex_unlock(&target->mutex);
 	}
 
-	pthread_mutex_lock(&service->mutex);
+	unsigned lid = (unsigned)entry->sockfd % COMM_SERVICE_LOCK_CNT;
+	std::mutex &mtx = service->mtxs[lid];
+	mtx.lock();
 	if (entry->state == CONN_STATE_KEEPALIVE)
 		list_del(&entry->list);
 	else if (entry->state != CONN_STATE_CONNECTED)
 		entry = NULL;
+	mtx.unlock();
 
-	pthread_mutex_unlock(&service->mutex);
 	if (!entry)
 	{
 		errno = EBADMSG;

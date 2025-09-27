@@ -22,8 +22,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <string>
-#include <mutex>
 #include <openssl/ssl.h>
 #include "rbtree.h"
 #include "WFConnection.h"
@@ -96,12 +96,13 @@ public:
 	RouteManager()
 	{
 		cache_.rb_node = NULL;
+		pthread_rwlock_init(&rwlock_, NULL);
 	}
 
 	~RouteManager();
 
 private:
-	std::mutex mutex_;
+	pthread_rwlock_t rwlock_;
 	struct rb_root cache_;
 
 public:
